@@ -354,7 +354,7 @@ func (p *parser) addText(text string) {
 	})
 }
 
-func (p *parser) addFrontmatter(empty bool) {
+func (p *parser) addFrontmatter() {
 	if p.frontmatterState == FrontmatterInitial {
 		if p.doc.FirstChild != nil {
 			p.fm = &Node{
@@ -369,13 +369,8 @@ func (p *parser) addFrontmatter(empty bool) {
 			}
 			p.doc.AppendChild(p.fm)
 		}
-		if empty {
-			p.frontmatterState = FrontmatterClosed
-			p.fm.Attr = append(p.fm.Attr, Attribute{Key: ImplicitNodeMarker, Type: EmptyAttribute})
-		} else {
-			p.frontmatterState = FrontmatterOpen
-			p.oe = append(p.oe, p.fm)
-		}
+		p.frontmatterState = FrontmatterOpen
+		p.oe = append(p.oe, p.fm)
 	}
 }
 
@@ -646,9 +641,6 @@ func initialIM(p *parser) bool {
 		p.im = beforeHTMLIM
 		return true
 	}
-	if p.frontmatterState == FrontmatterInitial {
-		p.addFrontmatter(true)
-	}
 	p.quirks = true
 	p.im = beforeHTMLIM
 	return false
@@ -902,8 +894,10 @@ func inHeadIM(p *parser) bool {
 			p.im = afterHeadIM
 			return true
 		case a.Body, a.Html, a.Br:
-			p.parseImpliedToken(EndTagToken, a.Head, a.Head.String())
 			p.addLoc()
+			p.oe.pop()
+			p.originalIM = nil
+			p.im = afterHeadIM
 			return false
 		case a.Template:
 			if !p.oe.contains(a.Template) {
@@ -1437,11 +1431,17 @@ func inBodyIM(p *parser) bool {
 			if p.elementInScope(defaultScope, a.Body) {
 				p.im = afterBodyIM
 			}
+			if p.literal {
+				p.oe.pop()
+			}
 		case a.Html:
 			p.addLoc()
 			if p.elementInScope(defaultScope, a.Body) {
 				p.parseImpliedToken(EndTagToken, a.Body, a.Body.String())
 				return false
+			}
+			if p.literal {
+				p.oe.pop()
 			}
 			return true
 		case a.Address, a.Article, a.Aside, a.Blockquote, a.Button, a.Center, a.Details, a.Dialog, a.Dir, a.Div, a.Dl, a.Fieldset, a.Figcaption, a.Figure, a.Footer, a.Header, a.Hgroup, a.Listing, a.Main, a.Menu, a.Nav, a.Ol, a.Pre, a.Section, a.Summary, a.Ul:
@@ -1533,9 +1533,6 @@ func inBodyIM(p *parser) bool {
 				return true
 			}
 		}
-	}
-	if p.frontmatterState == FrontmatterInitial {
-		p.addFrontmatter(true)
 	}
 	return true
 }
@@ -2642,7 +2639,7 @@ func frontmatterIM(p *parser) bool {
 	switch p.tok.Type {
 	case FrontmatterFenceToken:
 		if p.frontmatterState == FrontmatterInitial {
-			p.addFrontmatter(false)
+			p.addFrontmatter()
 			return true
 		} else {
 			p.frontmatterState = FrontmatterClosed
@@ -2700,9 +2697,10 @@ func inLiteralIM(p *parser) bool {
 			p.addLoc()
 			p.oe.pop()
 			p.acknowledgeSelfClosingTag()
+		} else {
+			// always continue `inLiteralIM`
+			return true
 		}
-		// always continue `inLiteralIM`
-		return true
 	case StartExpressionToken:
 		p.addExpression()
 		// always continue `inLiteralIM`
